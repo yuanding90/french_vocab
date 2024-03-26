@@ -1,0 +1,60 @@
+import sqlite3
+import tkinter as tk
+from tkinter import ttk, filedialog
+
+class DatabaseExplorer:
+    def __init__(self):
+        self.db_file = None
+        self.create_ui()
+
+    def create_ui(self):
+        self.window = tk.Tk()
+        self.window.title("Database Explorer")
+
+        self.table_frame = ttk.Frame(self.window)
+        self.table_frame.pack(pady=10)
+
+        self.table_listbox = tk.Listbox(self.table_frame)
+        self.table_listbox.pack(side=tk.LEFT, padx=10)
+
+        scrollbar = ttk.Scrollbar(self.table_frame, orient=tk.VERTICAL, command=self.table_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.table_listbox.config(yscrollcommand=scrollbar.set)
+
+        button_frame = ttk.Frame(self.window)
+        button_frame.pack()
+
+        open_button = ttk.Button(button_frame, text="Open Database", command=self.open_database)
+        open_button.pack(side=tk.LEFT, padx=5)
+
+        self.status_label = ttk.Label(self.window, text="")
+        self.status_label.pack()
+
+    def open_database(self):
+        self.db_file = filedialog.askopenfilename(filetypes=[("SQLite Database", "*.db")])
+        if self.db_file:
+            self.explore_database()
+
+    def explore_database(self):
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+
+        self.table_listbox.delete(0, tk.END)
+        for table in tables:
+            table_name = table[0]
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name};")
+            word_count = cursor.fetchone()[0]
+            self.table_listbox.insert(tk.END, f"{table_name} ({word_count} words)")
+
+        conn.close()
+        self.status_label.config(text=f"Database: {self.db_file}")
+
+    def run(self):
+        self.window.mainloop()
+
+# Example usage
+app = DatabaseExplorer()
+app.run()
