@@ -175,6 +175,46 @@ class VocabularyApp:
             self.current_word_index = random.randint(0, len(self.vocabulary_data) - 1)
         self.display_word()
 
+
+    def display_next_word(self):
+        if self.vocabulary_data:
+            if self.review_mode == "sequence":
+             # Get the list of indexes from the current table
+               conn = sqlite3.connect(self.db_file)
+               cursor = conn.cursor()
+               cursor.execute(f"SELECT id FROM {self.current_table} ORDER BY id")
+               indexes = [row[0] for row in cursor.fetchall()]
+               conn.close()
+
+               # Find the next smallest index greater than the current index
+               next_index = None
+               for index in indexes:
+                   if index > self.vocabulary_data[self.current_word_index][0]:
+                       next_index = index
+                       break
+
+               # If no next index found, wrap around to the smallest index
+               if next_index is None:
+                   next_index = indexes[0]
+
+               # Find the index of the word with the next smallest index
+               self.current_word_index = next((i for i, word in enumerate(self.vocabulary_data) if word[0] == next_index), 0)
+            else:
+               # Get the list of indexes from the current table
+               conn = sqlite3.connect(self.db_file)
+               cursor = conn.cursor()
+               cursor.execute(f"SELECT id FROM {self.current_table}")
+               indexes = [row[0] for row in cursor.fetchall()]
+               conn.close()
+
+               # Randomly select an index from the list of indexes
+               random_index = random.choice(indexes)
+
+               # Find the index of the word with the randomly selected index
+               self.current_word_index = next((i for i, word in enumerate(self.vocabulary_data) if word[0] == random_index), 0)
+
+            self.display_word()   
+
     def mark_word_known(self):
         word_data = self.vocabulary_data[self.current_word_index]
         self.remove_word_from_table(word_data, "new_vocab")
@@ -222,19 +262,20 @@ class VocabularyApp:
         finally:
            conn.close()
 
-    def refresh_vocabulary(self):
-        conn = sqlite3.connect(self.db_file)
-        cursor = conn.cursor()
+#this is old version should not be used since it doesnt remove words from known and new vocab list
+    # def refresh_vocabulary(self):
+    #     conn = sqlite3.connect(self.db_file)
+    #     cursor = conn.cursor()
 
-        cursor.execute("DELETE FROM vocab_exe")
-        cursor.execute("INSERT INTO vocab_exe SELECT * FROM vocabulary")
+    #     cursor.execute("DELETE FROM vocab_exe")
+    #     cursor.execute("INSERT INTO vocab_exe SELECT * FROM vocabulary")
 
-        conn.commit()
-        conn.close()
-        self.load_vocabulary_data()
-        self.current_word_index = 0
-        self.display_word()
-        self.refresh_vocabulary_list()
+    #     conn.commit()
+    #     conn.close()
+    #     self.load_vocabulary_data()
+    #     self.current_word_index = 0
+    #     self.display_word()
+    #     self.refresh_vocabulary_list()
 
     def clear_known_vocab(self):
         conn = sqlite3.connect(self.db_file)
