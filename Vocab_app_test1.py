@@ -3,13 +3,26 @@ import random
 import tkinter as tk
 from tkinter import ttk, filedialog
 
+import os
+import tempfile
+try:
+    from gtts import gTTS
+    import pygame
+except ImportError as e:
+    print("Please install the required dependencies by running:")
+    print("pip install -r requirements.txt")
+    print("Error details:", e)
+    exit(1)
+
 class VocabularyApp:
     def __init__(self):
         self.db_file = None
         self.current_table = None
         self.current_word_index = 0
         self.vocabulary_data = []
+        self.translation_visible = False
         self.review_mode = "sequence"
+        pygame.mixer.init()
         self.create_ui()
 
     def create_ui(self):
@@ -44,6 +57,8 @@ class VocabularyApp:
 
         self.window.bind("<Left>", self.on_left_key)
         self.window.bind("<Right>", self.on_right_key)
+        self.window.bind("<Up>", self.on_up_key)
+        self.window.bind("<Down>", self.on_down_key)
 
         random_button = ttk.Button(button_frame, text="Random", command=lambda: self.set_review_mode("random"))
         random_button.pack(side=tk.LEFT, padx=5)
@@ -56,6 +71,24 @@ class VocabularyApp:
 
         clear_new_button = ttk.Button(button_frame, text="Clear New Vocab List", command=self.clear_new_vocab)
         clear_new_button.pack(side=tk.LEFT, padx=5)
+        
+        toggle_frame = ttk.Frame(self.window)
+        toggle_frame.pack()
+        
+        #control visibility of the english translation 
+        toggle_translation_button = ttk.Button(toggle_frame, text="Toggle Translation", command=self.toggle_translation)
+        toggle_translation_button.pack(side=tk.LEFT, padx=5)
+
+        #button to show translation for current word
+        show_current_translation_button = ttk.Button(toggle_frame, text="Show Current Translation", command=self.show_current_translation)
+        show_current_translation_button.pack(side=tk.LEFT, padx=5)
+        
+        #button to prounce vocab
+        pronunciation_button = ttk.Button(toggle_frame, text="Pronunce Word", command=self.play_current_pronunciation)
+        pronunciation_button.pack(side=tk.LEFT, padx=5)
+
+        sentence_pronunciation_button = ttk.Button(toggle_frame, text="Pronunce Sentence", command=self.play_sentence_pronunciation)
+        sentence_pronunciation_button.pack(side=tk.LEFT, padx=5)
 
         self.word_frame = ttk.Frame(self.window)
         self.word_frame.pack(pady=10)
@@ -93,13 +126,15 @@ class VocabularyApp:
         instructions = [
             "1. Select a vocabulary table from the list.",
             "2. Choose 'Sequence' or 'Random' review mode.",
-            "3. Click 'Y' if you know the word, 'N' if you don't.",
+            "3. Click 'Y' or Left key if you know the word, 'N' or Right key if you don't.",
             "4. Use 'Refresh Vocabulary' to reset the word list.",
             "5. Use 'Clear Known Vocab List' and 'Clear New Vocab List' to manage your lists.",
             "6. vocabulary is the root list (can be expanded)", 
             "7. vocab_exe is the running list, everyw word you review, we will remove it from the list",
             "8. known_vocab has words that you know.",
-            "9. new_vocab has words that you need to memorizie." 
+            "9. new_vocab has words that you need to memorizie.",
+            "10. Click 'Toggle Translation' or Down key to show/hide English translations.",
+            "11. Click 'Show Current Translation' or Up key to reveal the translation for the current word."
         ]
 
         for instruction in instructions:
@@ -108,6 +143,11 @@ class VocabularyApp:
 
         self.status_label = ttk.Label(self.window, text="")
         self.status_label.pack()
+
+    #function to control visibility of translation
+    def toggle_translation(self):
+        self.translation_visible = not self.translation_visible
+        self.display_word()
 
     def open_database(self):
         self.db_file = filedialog.askopenfilename(filetypes=[("SQLite Database", "*.db")])
@@ -148,21 +188,48 @@ class VocabularyApp:
 
         conn.close()
 
+    # def display_word(self):
+    #     if self.vocabulary_data:
+    #         word_data = self.vocabulary_data[self.current_word_index]
+    #         self.id_label.config(text=f"ID: {word_data[0]}")
+    #         self.french_label.config(text=word_data[1])
+    #         self.english_label.config(text=f"English: {word_data[2]}")
+    #         self.example_label.config(text=f"Example: {word_data[3]}")
+    #         self.translation_label.config(text=f"Translation: {word_data[4]}")
+    #     else:
+    #         self.id_label.config(text="")
+    #         self.french_label.config(text="")
+    #         self.english_label.config(text="")
+    #         self.example_label.config(text="")
+    #         self.translation_label.config(text="")
+
     def display_word(self):
         if self.vocabulary_data:
-            word_data = self.vocabulary_data[self.current_word_index]
-            self.id_label.config(text=f"ID: {word_data[0]}")
-            self.french_label.config(text=word_data[1])
-            self.english_label.config(text=f"English: {word_data[2]}")
-            self.example_label.config(text=f"Example: {word_data[3]}")
-            self.translation_label.config(text=f"Translation: {word_data[4]}")
+           word_data = self.vocabulary_data[self.current_word_index]
+           self.id_label.config(text=f"ID: {word_data[0]}")
+           self.french_label.config(text=word_data[1])
+        
+           if self.translation_visible:
+              self.english_label.config(text=f"English: {word_data[2]}")
+              self.translation_label.config(text=f"Translation: {word_data[4]}")
+           else:
+              self.english_label.config(text="")
+              self.translation_label.config(text="")
+        
+           self.example_label.config(text=f"Example: {word_data[3]}")
         else:
-            self.id_label.config(text="")
-            self.french_label.config(text="")
-            self.english_label.config(text="")
-            self.example_label.config(text="")
-            self.translation_label.config(text="")
+           self.id_label.config(text="")
+           self.french_label.config(text="")
+           self.english_label.config(text="")
+           self.example_label.config(text="")
+           self.translation_label.config(text="")
 
+    def show_current_translation(self):
+        if self.vocabulary_data:
+           word_data = self.vocabulary_data[self.current_word_index]
+           self.english_label.config(text=f"English: {word_data[2]}")
+           self.translation_label.config(text=f"Translation: {word_data[4]}")
+    
     def set_review_mode(self, mode):
         self.review_mode = mode
         self.display_next_word()
@@ -348,11 +415,46 @@ class VocabularyApp:
 
         conn.close()
 
+    def play_pronunciation(self, text, language='en'):
+        try:
+           tts = gTTS(text=text, lang=language)
+           with tempfile.NamedTemporaryFile(delete=True) as fp:
+               tts.save(f"{fp.name}.mp3")
+               pygame.mixer.music.load(f"{fp.name}.mp3")
+               pygame.mixer.music.play()
+               while pygame.mixer.music.get_busy():
+                   pygame.time.Clock().tick(10)
+        except Exception as e:
+            print(f"An error occurred while playing the pronunciation: {e}")
+    
+    #pronounce word
+    def play_sentence_pronunciation(self):
+        if self.vocabulary_data:
+            word_data = self.vocabulary_data[self.current_word_index]
+            french_sentence = word_data[3]
+            if french_sentence:
+                self.play_pronunciation(french_sentence, language='fr')
+            else:
+                print("No French sentence available for pronunciation.")
+    
+    #pronounce word
+    def play_current_pronunciation(self):
+        if self.vocabulary_data:
+            word_data = self.vocabulary_data[self.current_word_index]
+            french_word = word_data[1]
+            self.play_pronunciation(french_word, language='fr')
+
     def on_left_key(self, event):
         self.mark_word_known()
 
     def on_right_key(self, event):
         self.mark_word_new()
+
+    def on_up_key(self, event):
+        self.show_current_translation()
+
+    def on_down_key(self, event):
+        self.toggle_translation()
 
     def run(self):
         self.window.mainloop()
