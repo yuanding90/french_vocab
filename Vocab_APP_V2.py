@@ -2,9 +2,14 @@ import sqlite3
 import random
 import tkinter as tk
 from tkinter import ttk, filedialog
-
 import os
 import tempfile
+import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from collections import defaultdict
+import numpy as np
+
 try:
     from gtts import gTTS
     import pygame
@@ -23,13 +28,38 @@ class VocabularyApp:
         self.translation_visible = False
         self.review_mode = "sequence"
         pygame.mixer.init()
+        self.words_reviewed = 0
+        self.words_known = set()
+        self.words_unknown = set()
+        self.daily_stats = defaultdict(lambda: {"reviewed": 0, "known": 0, "unknown": 0})
+        self.log_file = None
         self.create_ui()
+        self.load_daily_stats()
 
     def create_ui(self):
         self.window = tk.Tk()
         self.window.title("Vocabulary App")
 
-        self.table_frame = ttk.Frame(self.window)
+        # Main frame to hold left and right sections
+        main_frame = ttk.Frame(self.window)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Left frame for existing content
+        left_frame = ttk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Right frame for the chart
+        self.right_frame = ttk.Frame(main_frame, width=400)
+        self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        # Add stats frame to left frame
+        self.stats_frame = ttk.Frame(left_frame)
+        self.stats_frame.pack(anchor=tk.NW, padx=10, pady=10)
+
+        self.stats_label = ttk.Label(self.stats_frame, text="Reviewed: 0 | Known: 0 | Unknown: 0", font=("Arial", 18, "bold"))
+        self.stats_label.pack()
+
+        self.table_frame = ttk.Frame(left_frame)
         self.table_frame.pack(pady=10)
 
         listbox_frame = ttk.Frame(self.table_frame)
@@ -46,7 +76,7 @@ class VocabularyApp:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.table_listbox.config(yscrollcommand=scrollbar.set)
 
-        button_frame = ttk.Frame(self.window)
+        button_frame = ttk.Frame(left_frame)
         button_frame.pack()
 
         open_button = ttk.Button(button_frame, text="Open Database", command=self.open_database)
@@ -73,7 +103,7 @@ class VocabularyApp:
         clear_new_button = ttk.Button(button_frame, text="Clear New Vocab List", command=self.clear_new_vocab)
         clear_new_button.pack(side=tk.LEFT, padx=5)
         
-        toggle_frame = ttk.Frame(self.window)
+        toggle_frame = ttk.Frame(left_frame)
         toggle_frame.pack()
         
         #control visibility of the english translation 
@@ -91,7 +121,7 @@ class VocabularyApp:
         sentence_pronunciation_button = ttk.Button(toggle_frame, text="Pronunce Sentence", command=self.play_sentence_pronunciation)
         sentence_pronunciation_button.pack(side=tk.LEFT, padx=5)
 
-        self.word_frame = ttk.Frame(self.window)
+        self.word_frame = ttk.Frame(left_frame)
         self.word_frame.pack(pady=10)
 
         self.id_label = ttk.Label(self.word_frame, text="", font=("Arial", 20))
@@ -109,7 +139,7 @@ class VocabularyApp:
         self.translation_label = ttk.Label(self.word_frame, text="", font=("Arial", 20))
         self.translation_label.pack()
 
-        choice_frame = ttk.Frame(self.window)
+        choice_frame = ttk.Frame(left_frame)
         choice_frame.pack(pady=10)
 
         yes_button = ttk.Button(choice_frame, text="Y", command=self.mark_word_known)
@@ -118,7 +148,7 @@ class VocabularyApp:
         no_button = ttk.Button(choice_frame, text="N", command=self.mark_word_new)
         no_button.pack(side=tk.LEFT, padx=5)
 
-        instruction_frame = ttk.Frame(self.window)
+        instruction_frame = ttk.Frame(left_frame)
         instruction_frame.pack(pady=10)
 
         instruction_label = ttk.Label(instruction_frame, text="Instructions:", font=("Arial", 12, "bold"))
@@ -142,8 +172,68 @@ class VocabularyApp:
             bullet_label = ttk.Label(instruction_frame, text=instruction)
             bullet_label.pack(anchor=tk.W)
 
-        self.status_label = ttk.Label(self.window, text="")
+        self.status_label = ttk.Label(left_frame, text="")
         self.status_label.pack()
+
+        # Create the chart
+        self.create_chart()
+
+    def create_chart(self):
+        fig, ax = plt.subplots(figsize=(5, 4))
+        self.canvas = FigureCanvasTkAgg(fig, master=self.right_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.ax = ax
+
+    def update_chart(self):
+        self.ax.clear()
+        dates = list(self.daily_stats.keys())[-7:]  # Last 7 days
+        reviewed = [self.daily_stats[date]["reviewed"] for date in dates]
+        known = [self.daily_stats[date]["known"] for date in dates]
+        unknown = [self.daily_stats[date]["unknown"] for date in dates]
+
+        x = np.arange(len(dates))  # the label locations
+        width = 0.25  # the width of the bars
+
+        self.ax.bar(x - width, reviewed, width, label='Reviewed', color='blue')
+        self.ax.bar(x, known, width, label='Known', color='green')
+        self.ax.bar(x + width, unknown, width, label='Unknown', color='red')
+
+        self.ax.set_xlabel('Date')
+        self.ax.set_ylabel('Number of Words')
+        self.ax.set_title('Daily Statistics')
+        self.ax.set_xticks(x)
+        self.ax.set_xticklabels(dates, rotation=45, ha='right')
+        self.ax.legend()
+
+        plt.tight_layout()
+        self.canvas.draw()
+
+    def load_daily_stats(self):
+        if self.log_file and os.path.exists(self.log_file):
+            with open(self.log_file, 'r') as f:
+                for line in f:
+                    date, reviewed, known, unknown = line.strip().split(',')
+                    self.daily_stats[date] = {
+                        "reviewed": int(reviewed),
+                        "known": int(known),
+                        "unknown": int(unknown)
+                    }
+        self.update_chart()
+
+    def save_daily_stats(self):
+        today = datetime.date.today().isoformat()
+        self.daily_stats[today] = {
+            "reviewed": self.words_reviewed,
+            "known": len(self.words_known),
+            "unknown": len(self.words_unknown)
+        }
+        
+        with open(self.log_file, 'w') as f:
+            for date, stats in self.daily_stats.items():
+                f.write(f"{date},{stats['reviewed']},{stats['known']},{stats['unknown']}\n")
+        
+        self.update_chart()
 
     #function to control visibility of translation
     def toggle_translation(self):
@@ -153,6 +243,8 @@ class VocabularyApp:
     def open_database(self):
         self.db_file = filedialog.askopenfilename(filetypes=[("SQLite Database", "*.db")])
         if self.db_file:
+            self.log_file = os.path.join(os.path.dirname(self.db_file), "vocab_stats.txt")
+            self.load_daily_stats()
             self.explore_database()
 
     def explore_database(self):
@@ -288,16 +380,26 @@ class VocabularyApp:
         self.remove_word_from_table(word_data, "new_vocab")
         self.remove_word_from_table(word_data, "vocab_exe")
         self.add_word_to_table(word_data, "known_vocab")
+        self.words_reviewed += 1
+        self.words_known.add(word_data[0])  # Add word ID to known set
+        self.words_unknown.discard(word_data[0])  # Remove from unknown set if present
+        self.update_stats()
         self.display_next_word()
         self.refresh_vocabulary_list()
+        self.save_daily_stats()
 
     def mark_word_new(self):
         word_data = self.vocabulary_data[self.current_word_index]
         self.remove_word_from_table(word_data, "known_vocab")
         self.remove_word_from_table(word_data, "vocab_exe")
         self.add_word_to_table(word_data, "new_vocab")
+        self.words_reviewed += 1
+        self.words_unknown.add(word_data[0])  # Add word ID to unknown set
+        self.words_known.discard(word_data[0])  # Remove from known set if present
+        self.update_stats()
         self.display_next_word()
         self.refresh_vocabulary_list()
+        self.save_daily_stats()
 
     def remove_word_from_table(self, word_data, table_name):
         conn = sqlite3.connect(self.db_file)
@@ -398,11 +500,20 @@ class VocabularyApp:
         finally:
            conn.close()
 
+        self.words_reviewed = 0
+        self.words_known.clear()
+        self.words_unknown.clear()
+        self.update_stats()
+
         self.load_vocabulary_data()
         self.current_word_index = 0
         self.display_word()
         self.refresh_vocabulary_list()
+        self.save_daily_stats()
 
+    def update_stats(self):
+        stats_text = f"Reviewed: {self.words_reviewed} | Known: {len(self.words_known)} | Unknown: {len(self.words_unknown)}"
+        self.stats_label.config(text=stats_text)
 
     def refresh_vocabulary_list(self):
         conn = sqlite3.connect(self.db_file)
